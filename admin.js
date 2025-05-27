@@ -139,28 +139,36 @@ function renderCard(container, data, id, isPending = false) {
 
   if (isPending) {
     col.querySelector(".approve").addEventListener("click", async () => {
-      const recipeRef = ref(db, "Recipes/" + id);
-      const oldRecipe = await onValueOnce(recipeRef);
+      const recipeIdToUpdate =
+        data.originalId && data.originalId !== "" ? data.originalId : id;
+      const recipeRef = ref(db, "Recipes/" + recipeIdToUpdate);
 
+      // Ambil data lama resep yang diapprove
+      const oldRecipe = await onValueOnce(recipeRef);
       const oldCategory = oldRecipe?.category;
       const newCategory = data.category;
 
-      // Simpan data baru ke Recipes
+      // Update data resep sesuai originalId (atau id baru kalau tambah baru)
       await set(recipeRef, {
         ...data,
-        id: id,
+        id: recipeIdToUpdate,
         status: "approved",
       });
 
-      // Tambah referensi ke kategori baru
-      await set(ref(db, "Categories/" + newCategory + "/" + id), true);
+      // Tambah referensi kategori baru
+      await set(
+        ref(db, "Categories/" + newCategory + "/" + recipeIdToUpdate),
+        true
+      );
 
-      // Jika kategori berubah, hapus referensi lama
+      // Hapus referensi kategori lama jika ada dan berbeda
       if (oldCategory && oldCategory !== newCategory) {
-        await remove(ref(db, "Categories/" + oldCategory + "/" + id));
+        await remove(
+          ref(db, "Categories/" + oldCategory + "/" + recipeIdToUpdate)
+        );
       }
 
-      // Hapus dari PendingRecipes
+      // Hapus resep di PendingRecipes
       await remove(ref(db, "PendingRecipes/" + id));
 
       col.remove();
@@ -181,6 +189,20 @@ function renderCard(container, data, id, isPending = false) {
           alert("Resep berhasil dihapus.");
         });
       }
+    });
+  }
+
+  function onValueOnce(ref) {
+    return new Promise((resolve) => {
+      onValue(
+        ref,
+        (snapshot) => {
+          resolve(snapshot.exists() ? snapshot.val() : null);
+        },
+        {
+          onlyOnce: true,
+        }
+      );
     });
   }
 
