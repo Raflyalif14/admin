@@ -9,7 +9,13 @@ document.getElementById("logoutBtn").addEventListener("click", () => {
 });
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getDatabase, ref, onValue, set, remove } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+import {
+  getDatabase,
+  ref,
+  onValue,
+  set,
+  remove,
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
 // Firebase config
 const firebaseConfig = {
@@ -20,7 +26,7 @@ const firebaseConfig = {
   storageBucket: "recipes-app-f172f.appspot.com",
   messagingSenderId: "272717420782",
   appId: "1:272717420782:web:a2dcbe0c41b6ec7c01bbff",
-  measurementId: "G-Y34XQ5CB8G"
+  measurementId: "G-Y34XQ5CB8G",
 };
 
 const app = initializeApp(firebaseConfig);
@@ -31,17 +37,19 @@ const pendingList = document.getElementById("pending-list");
 const approvedList = document.getElementById("approved-list");
 
 // Sidebar toggle
-document.querySelectorAll('#sidebar-menu .nav-link').forEach(link => {
-  link.addEventListener('click', (e) => {
+document.querySelectorAll("#sidebar-menu .nav-link").forEach((link) => {
+  link.addEventListener("click", (e) => {
     e.preventDefault();
 
-    document.querySelectorAll('#sidebar-menu .nav-link').forEach(l => l.classList.remove('active'));
-    link.classList.add('active');
+    document
+      .querySelectorAll("#sidebar-menu .nav-link")
+      .forEach((l) => l.classList.remove("active"));
+    link.classList.add("active");
 
-    document.getElementById('pending-section').classList.add('d-none');
-    document.getElementById('approved-section').classList.add('d-none');
+    document.getElementById("pending-section").classList.add("d-none");
+    document.getElementById("approved-section").classList.add("d-none");
 
-    document.getElementById(link.dataset.target).classList.remove('d-none');
+    document.getElementById(link.dataset.target).classList.remove("d-none");
   });
 });
 
@@ -51,7 +59,7 @@ const usersMap = {};
 // Load semua user dulu
 onValue(ref(db, "Users"), (snapshot) => {
   if (snapshot.exists()) {
-    snapshot.forEach(userSnap => {
+    snapshot.forEach((userSnap) => {
       const user = userSnap.val();
       usersMap[user.id] = user.name || "Tanpa Nama";
     });
@@ -66,7 +74,7 @@ function loadRecipes() {
   onValue(ref(db, "PendingRecipes"), (snapshot) => {
     pendingList.innerHTML = "";
     if (snapshot.exists()) {
-      snapshot.forEach(child => {
+      snapshot.forEach((child) => {
         renderCard(pendingList, child.val(), child.key, true);
       });
     } else {
@@ -78,7 +86,7 @@ function loadRecipes() {
   onValue(ref(db, "Recipes"), (snapshot) => {
     approvedList.innerHTML = "";
     if (snapshot.exists()) {
-      snapshot.forEach(child => {
+      snapshot.forEach((child) => {
         renderCard(approvedList, child.val(), child.key, false);
       });
     } else {
@@ -90,11 +98,11 @@ function loadRecipes() {
 // Fungsi render kartu resep
 function renderCard(container, data, id, isPending = false) {
   const {
-    name = 'Tanpa Nama',
-    description = '-',
-    category = 'Tidak ada kategori',
-    authorId = '',
-    image = 'https://via.placeholder.com/300x200?text=No+Image'
+    name = "Tanpa Nama",
+    description = "-",
+    category = "Tidak ada kategori",
+    authorId = "",
+    image = "https://via.placeholder.com/300x200?text=No+Image",
   } = data;
 
   const authorName = usersMap[authorId] || "Pengguna tidak diketahui";
@@ -110,32 +118,53 @@ function renderCard(container, data, id, isPending = false) {
         <h6 class="card-subtitle mb-2 text-muted">Kategori: ${category}</h6>
         <p class="card-text"><strong>Deskripsi:</strong> ${description}</p>
         <p class="card-text"><small class="text-muted">Dikirim oleh: ${authorName}</small></p>
-        ${isPending ? `
+        ${
+          isPending
+            ? `
           <div class="mt-auto d-flex justify-content-between">
             <button class="btn btn-success btn-sm approve">Approve</button>
             <button class="btn btn-danger btn-sm reject">Reject</button>
           </div>
-        ` : `
+        `
+            : `
           <div class="mt-auto d-flex justify-content-between align-items-center">
             <span class="text-success fw-bold">✅ Disetujui</span>
             <button class="btn btn-outline-danger btn-sm delete">Hapus</button>
           </div>
-        `}
+        `
+        }
       </div>
     </div>
   `;
 
   if (isPending) {
-    col.querySelector(".approve").addEventListener("click", () => {
-      set(ref(db, "Recipes/" + id), {
+    col.querySelector(".approve").addEventListener("click", async () => {
+      const recipeRef = ref(db, "Recipes/" + id);
+      const oldRecipe = await onValueOnce(recipeRef);
+
+      const oldCategory = oldRecipe?.category;
+      const newCategory = data.category;
+
+      // Simpan data baru ke Recipes
+      await set(recipeRef, {
         ...data,
-        status: "approved"
-      }).then(() => {
-        remove(ref(db, "PendingRecipes/" + id)).then(() => {
-          col.remove();
-          alert("Resep berhasil di-approve!");
-        });
+        id: id,
+        status: "approved",
       });
+
+      // Tambah referensi ke kategori baru
+      await set(ref(db, "Categories/" + newCategory + "/" + id), true);
+
+      // Jika kategori berubah, hapus referensi lama
+      if (oldCategory && oldCategory !== newCategory) {
+        await remove(ref(db, "Categories/" + oldCategory + "/" + id));
+      }
+
+      // Hapus dari PendingRecipes
+      await remove(ref(db, "PendingRecipes/" + id));
+
+      col.remove();
+      alert("Resep berhasil di-approve dan diperbarui!");
     });
 
     col.querySelector(".reject").addEventListener("click", () => {
