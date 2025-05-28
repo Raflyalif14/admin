@@ -103,7 +103,7 @@ function loadRecipes() {
         renderCard(pendingList, child.val(), child.key, true);
       });
     } else {
-      pendingList.innerHTML = `<p class="text-center">Tidak ada resep menunggu persetujuan.</p>`;
+      pendingList.innerHTML = `<p class="text-center">Tidak ada Destination menunggu persetujuan.</p>`;
     }
   });
 
@@ -115,7 +115,7 @@ function loadRecipes() {
         renderCard(approvedList, child.val(), child.key, false);
       });
     } else {
-      approvedList.innerHTML = `<p class="text-center">Belum ada resep yang disetujui.</p>`;
+      approvedList.innerHTML = `<p class="text-center">Belum ada Destination yang disetujui.</p>`;
     }
   });
 }
@@ -137,7 +137,7 @@ function renderCard(container, data, id, isPending = false) {
 
   col.innerHTML = `
     <div class="card shadow-sm h-100">
-      <img src="${image}" class="card-img-top" alt="Gambar Resep">
+      <img src="${image}" class="card-img-top" alt="Gambar Destination">
       <div class="card-body d-flex flex-column">
         <h5 class="card-title">${name}</h5>
         <h6 class="card-subtitle mb-2 text-muted">Kategori: ${category}</h6>
@@ -197,21 +197,21 @@ function renderCard(container, data, id, isPending = false) {
       await remove(ref(db, "PendingRecipes/" + id));
 
       col.remove();
-      alert("Resep berhasil di-approve dan diperbarui!");
+      alert("Destination berhasil di-approve dan diperbarui!");
     });
 
     col.querySelector(".reject").addEventListener("click", () => {
       remove(ref(db, "PendingRecipes/" + id)).then(() => {
         col.remove();
-        alert("Resep ditolak dan dihapus.");
+        alert("Destination ditolak dan dihapus.");
       });
     });
   } else {
     col.querySelector(".delete").addEventListener("click", () => {
-      if (confirm("Yakin ingin menghapus resep ini?")) {
+      if (confirm("Yakin ingin menghapus Destination ini?")) {
         remove(ref(db, "Recipes/" + id)).then(() => {
           col.remove();
-          alert("Resep berhasil dihapus.");
+          alert("Destination berhasil dihapus.");
         });
       }
     });
