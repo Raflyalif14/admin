@@ -196,11 +196,7 @@ function renderCard(container, data, id, isPending = false) {
           category: data.category,
           authorId: data.authorId,
           image: data.image,
-          ingredients: data.ingredients || [],
-          instructions: data.instructions || [],
           status: "approved",
-          approvedAt: new Date().toISOString(),
-          approvedBy: "admin",
         };
 
         // Gunakan push untuk generate key baru otomatis
