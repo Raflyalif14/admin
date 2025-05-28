@@ -53,6 +53,31 @@ document.querySelectorAll("#sidebar-menu .nav-link").forEach((link) => {
   });
 });
 
+// Ambil token FCM user
+const userRef = ref(db, "Users/" + authorId);
+onValueOnce(userRef).then((userData) => {
+  const fcmToken = userData?.fcmToken;
+  if (fcmToken) {
+    fetch(
+      "https://<region>-<your-project>.cloudfunctions.net/sendApprovalNotification",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          token: fcmToken,
+          title: "Resep Disetujui",
+          body: `Resep "${name}" kamu telah disetujui oleh admin!`,
+        }),
+      }
+    )
+      .then((res) => res.text())
+      .then(console.log)
+      .catch(console.error);
+  }
+});
+
 // Map penyimpanan user
 const usersMap = {};
 
@@ -155,18 +180,18 @@ function renderCard(container, data, id, isPending = false) {
         status: "approved",
       });
 
-      // Tambah referensi kategori baru
-      await set(
-        ref(db, "Categories/" + newCategory + "/" + recipeIdToUpdate),
-        true
-      );
+      // // Tambah referensi kategori baru
+      // await set(
+      //   ref(db, "Categories/" + newCategory + "/" + recipeIdToUpdate),
+      //   true
+      // );
 
-      // Hapus referensi kategori lama jika ada dan berbeda
-      if (oldCategory && oldCategory !== newCategory) {
-        await remove(
-          ref(db, "Categories/" + oldCategory + "/" + recipeIdToUpdate)
-        );
-      }
+      // // Hapus referensi kategori lama jika ada dan berbeda
+      // if (oldCategory && oldCategory !== newCategory) {
+      //   await remove(
+      //     ref(db, "Categories/" + oldCategory + "/" + recipeIdToUpdate)
+      //   );
+      // }
 
       // Hapus resep di PendingRecipes
       await remove(ref(db, "PendingRecipes/" + id));
