@@ -3,11 +3,13 @@ if (localStorage.getItem("adminLoggedIn") !== "true") {
   window.location.href = "login.html";
 }
 
+// Logout handler
 document.getElementById("logoutBtn").addEventListener("click", () => {
   localStorage.removeItem("adminLoggedIn");
   window.location.href = "login.html";
 });
 
+// Firebase import
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
   getDatabase,
@@ -15,7 +17,6 @@ import {
   onValue,
   set,
   remove,
-  push,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
 // Firebase config
@@ -27,101 +28,92 @@ const firebaseConfig = {
   storageBucket: "recipes-app-f172f.appspot.com",
   messagingSenderId: "272717420782",
   appId: "1:272717420782:web:a2dcbe0c41b6ec7c01bbff",
-  measurementId: "G-Y34XQ5CB8G",
 };
 
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
-// DOM
-const pendingList = document.getElementById("pending-list");
-const approvedList = document.getElementById("approved-list");
-
 // Sidebar toggle
 document.querySelectorAll("#sidebar-menu .nav-link").forEach((link) => {
   link.addEventListener("click", (e) => {
     e.preventDefault();
-
     document
       .querySelectorAll("#sidebar-menu .nav-link")
       .forEach((l) => l.classList.remove("active"));
     link.classList.add("active");
 
-    document.getElementById("pending-section").classList.add("d-none");
-    document.getElementById("approved-section").classList.add("d-none");
-
+    document
+      .querySelectorAll(".section")
+      .forEach((sec) => sec.classList.add("d-none"));
     document.getElementById(link.dataset.target).classList.remove("d-none");
   });
 });
 
-// Map penyimpanan user
+// DOM references
+const pendingList = document.getElementById("pending-list");
+const approvedList = document.getElementById("approved-list");
 const usersMap = {};
 
-// Load semua user dulu
+// Load users and then recipes
 onValue(ref(db, "Users"), (snapshot) => {
-  if (snapshot.exists()) {
-    snapshot.forEach((userSnap) => {
-      const user = userSnap.val();
-      usersMap[user.id] = user.name || "Tanpa Nama";
-    });
-
-    // Setelah user dimuat, baru muat resep
-    loadRecipes();
-  }
+  snapshot.forEach((userSnap) => {
+    const user = userSnap.val();
+    usersMap[user.id] = user.name || "Tanpa Nama";
+  });
+  loadRecipes();
 });
 
+// Load recipes
 function loadRecipes() {
-  // Load Resep Approved
+  // Approved
   onValue(ref(db, "Recipes"), (snapshot) => {
-    approvedList.innerHTML = "";
-
-    if (snapshot.exists()) {
-      snapshot.forEach((child) => {
-        const recipeData = child.val();
-        renderCard(approvedList, recipeData, child.key, false);
-      });
-    } else {
-      approvedList.innerHTML = `<p class="text-center">Belum ada resep yang disetujui.</p>`;
-    }
+    renderList(approvedList, snapshot, false);
   });
 
-  // Load Resep Pending
+  // Pending
   onValue(ref(db, "PendingRecipes"), (snapshot) => {
-    pendingList.innerHTML = "";
-    if (snapshot.exists()) {
-      snapshot.forEach((child) => {
-        renderCard(pendingList, child.val(), child.key, true);
-      });
-    } else {
-      pendingList.innerHTML = `<p class="text-center">Tidak ada resep menunggu persetujuan.</p>`;
-    }
+    renderList(pendingList, snapshot, true);
   });
 }
 
-// Fungsi untuk mengecek apakah resep sudah ada di approved recipes
-async function checkDuplicateRecipe(name, authorId) {
+// Utility: render list
+function renderList(container, snapshot, isPending) {
+  container.innerHTML = "";
+  if (!snapshot.exists()) {
+    container.innerHTML = `<p class="text-center">${
+      isPending
+        ? "Tidak ada resep menunggu persetujuan."
+        : "Belum ada resep yang disetujui."
+    }</p>`;
+    return;
+  }
+
+  snapshot.forEach((child) => {
+    const data = child.val();
+    const id = child.key;
+    renderCard(container, data, id, isPending);
+  });
+}
+
+// Check duplikat
+function checkDuplicateRecipe(name, authorId) {
   return new Promise((resolve) => {
-    const recipesRef = ref(db, "Recipes");
     onValue(
-      recipesRef,
+      ref(db, "Recipes"),
       (snapshot) => {
-        let isDuplicate = false;
-        if (snapshot.exists()) {
-          snapshot.forEach((child) => {
-            const recipe = child.val();
-            if (recipe.name === name && recipe.authorId === authorId) {
-              isDuplicate = true;
-            }
-          });
-        }
-        resolve(isDuplicate);
+        let found = false;
+        snapshot.forEach((child) => {
+          const r = child.val();
+          if (r.name === name && r.authorId === authorId) found = true;
+        });
+        resolve(found);
       },
       { onlyOnce: true }
     );
   });
 }
 
-// Fungsi render kartu resep
+// Render 1 card
 function renderCard(container, data, id, isPending = false) {
   const {
     name = "Tanpa Nama",
@@ -130,8 +122,6 @@ function renderCard(container, data, id, isPending = false) {
     authorId = "",
     image = "https://via.placeholder.com/300x200?text=No+Image",
   } = data;
-
-  const authorName = usersMap[authorId] || "Pengguna tidak diketahui";
 
   const col = document.createElement("div");
   col.className = "col-md-6 col-lg-4";
@@ -143,107 +133,68 @@ function renderCard(container, data, id, isPending = false) {
         <h5 class="card-title">${name}</h5>
         <h6 class="card-subtitle mb-2 text-muted">Kategori: ${category}</h6>
         <p class="card-text"><strong>Deskripsi:</strong> ${description}</p>
-        <p class="card-text"><small class="text-muted">Dikirim oleh: ${authorName}</small></p>
+        <p class="card-text"><small class="text-muted">Dikirim oleh: ${
+          usersMap[authorId] || "Pengguna tidak diketahui"
+        }</small></p>
         ${
           isPending
-            ? `
-          <div class="mt-auto d-flex justify-content-between">
-            <button class="btn btn-success btn-sm approve" data-id="${id}">Approve</button>
-            <button class="btn btn-danger btn-sm reject" data-id="${id}">Reject</button>
-          </div>
-        `
-            : `
-          <div class="mt-auto d-flex justify-content-between align-items-center">
-            <span class="text-success fw-bold">✅ Disetujui</span>
-            <button class="btn btn-outline-danger btn-sm delete" data-id="${id}">Hapus</button>
-          </div>
-        `
+            ? `<div class="mt-auto d-flex justify-content-between">
+                <button class="btn btn-success btn-sm approve">Approve</button>
+                <button class="btn btn-danger btn-sm reject">Reject</button>
+              </div>`
+            : `<div class="mt-auto d-flex justify-content-between align-items-center">
+                <span class="text-success fw-bold">✅ Disetujui</span>
+                <button class="btn btn-outline-danger btn-sm delete">Hapus</button>
+              </div>`
         }
       </div>
     </div>
   `;
 
+  // Approve
   if (isPending) {
-    col.querySelector(".approve").addEventListener("click", async (e) => {
-      const recipeId = e.target.getAttribute("data-id");
+    col.querySelector(".approve").onclick = async () => {
+      const isDupe = await checkDuplicateRecipe(name, authorId);
+      if (isDupe) return alert("Resep sudah disetujui sebelumnya!");
 
-      // Disable button untuk mencegah double click
-      const approveBtn = e.target;
-      approveBtn.disabled = true;
-      approveBtn.textContent = "Processing...";
+      const newData = {
+        name,
+        description,
+        category,
+        authorId,
+        image,
+        status: "approved",
+        id: data.originalId || id,
+      };
 
       try {
-        // Cek duplikasi sebelum approve
-        const isDuplicate = await checkDuplicateRecipe(
-          data.name,
-          data.authorId
-        );
-
-        if (isDuplicate) {
-          alert("Resep ini sudah pernah disetujui sebelumnya!");
-          // Re-enable button
-          approveBtn.disabled = false;
-          approveBtn.textContent = "Approve";
-          return;
-        }
-
-        // Buat objek resep yang bersih - tanpa approvedAt dan approvedBy
-        const cleanRecipeData = {
-          name: data.name,
-          description: data.description,
-          category: data.category,
-          authorId: data.authorId,
-          image: data.image,
-          status: "approved",
-        };
-
-        // Gunakan push untuk generate key baru otomatis
-        const newRecipeRef = push(ref(db, "Recipes"));
-
-        // Tambahkan ke Recipes
-        await set(newRecipeRef, cleanRecipeData);
-
-        // Hapus dari PendingRecipes
-        await remove(ref(db, "PendingRecipes/" + recipeId));
-
-        alert("Resep berhasil di-approve!");
-      } catch (error) {
-        console.error("Error approving recipe:", error);
-        alert("Terjadi kesalahan saat menyetujui resep.");
-
-        // Re-enable button jika error
-        approveBtn.disabled = false;
-        approveBtn.textContent = "Approve";
+        await set(ref(db, "Recipes/" + newData.id), newData);
+        await remove(ref(db, "PendingRecipes/" + id));
+        alert("Resep berhasil disetujui!");
+      } catch (err) {
+        alert("Gagal menyetujui resep.");
       }
-    });
+    };
 
-    col.querySelector(".reject").addEventListener("click", async (e) => {
-      const recipeId = e.target.getAttribute("data-id");
-
-      if (confirm("Yakin ingin menolak resep ini?")) {
-        try {
-          await remove(ref(db, "PendingRecipes/" + recipeId));
-          alert("Resep ditolak dan dihapus.");
-        } catch (error) {
-          console.error("Error rejecting recipe:", error);
-          alert("Terjadi kesalahan saat menolak resep.");
-        }
+    col.querySelector(".reject").onclick = async () => {
+      if (!confirm("Yakin tolak resep ini?")) return;
+      try {
+        await remove(ref(db, "PendingRecipes/" + id));
+        alert("Resep ditolak.");
+      } catch {
+        alert("Gagal menolak resep.");
       }
-    });
+    };
   } else {
-    col.querySelector(".delete").addEventListener("click", async (e) => {
-      const recipeId = e.target.getAttribute("data-id");
-
-      if (confirm("Yakin ingin menghapus resep ini?")) {
-        try {
-          await remove(ref(db, "Recipes/" + recipeId));
-          alert("Resep berhasil dihapus.");
-        } catch (error) {
-          console.error("Error deleting recipe:", error);
-          alert("Terjadi kesalahan saat menghapus resep.");
-        }
+    col.querySelector(".delete").onclick = async () => {
+      if (!confirm("Hapus resep ini?")) return;
+      try {
+        await remove(ref(db, "Recipes/" + id));
+        alert("Resep dihapus.");
+      } catch {
+        alert("Gagal menghapus resep.");
       }
-    });
+    };
   }
 
   container.appendChild(col);
