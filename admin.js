@@ -230,83 +230,63 @@ function renderCard(container, data, id, isPending = false) {
 
     if (approveBtn) {
       approveBtn.addEventListener("click", async () => {
+        console.log("=== APPROVE PROCESS STARTED ===");
+        console.log("Recipe ID:", id);
+        console.log("Recipe data:", data);
+
+        // Test Firebase connection first
+        try {
+          console.log("Testing Firebase connection...");
+          await set(ref(db, "test/connection"), { timestamp: Date.now() });
+          console.log("✅ Firebase connection OK");
+        } catch (testError) {
+          console.error("❌ Firebase connection failed:", testError);
+          alert("Firebase connection failed: " + testError.message);
+          return;
+        }
+
         try {
           approveBtn.disabled = true;
           approveBtn.textContent = "Processing...";
 
-          const recipeIdToUpdate =
-            data.originalId && data.originalId !== "" ? data.originalId : id;
-          const recipeRef = ref(db, "Recipes/" + recipeIdToUpdate);
+          // Step 1: Simple move from Pending to Recipes
+          console.log("Step 1: Moving recipe to Recipes collection...");
+          const recipeIdToUpdate = data.originalId || id;
 
-          const oldRecipe = await onValueOnce(recipeRef);
-          const oldCategory = oldRecipe?.category;
-          const newCategory = data.category;
-
-          // Update resep
-          await set(recipeRef, {
+          await set(ref(db, "Recipes/" + recipeIdToUpdate), {
             ...data,
             id: recipeIdToUpdate,
             status: "approved",
+            approvedAt: Date.now(),
           });
+          console.log("✅ Recipe moved to Recipes");
 
-          // Tambah referensi kategori baru
-          if (newCategory) {
+          // Step 2: Remove from Pending
+          console.log("Step 2: Removing from PendingRecipes...");
+          await remove(ref(db, "PendingRecipes/" + id));
+          console.log("✅ Removed from PendingRecipes");
+
+          // Step 3: Update Categories (simplified)
+          if (data.category) {
+            console.log("Step 3: Updating category reference...");
             await set(
-              ref(db, "Categories/" + newCategory + "/" + recipeIdToUpdate),
+              ref(db, "Categories/" + data.category + "/" + recipeIdToUpdate),
               true
             );
+            console.log("✅ Category updated");
           }
 
-          // Hapus referensi kategori lama
-          if (oldCategory && oldCategory !== newCategory) {
-            await remove(
-              ref(db, "Categories/" + oldCategory + "/" + recipeIdToUpdate)
-            );
-          }
-
-          // Hapus dari Pending
-          await remove(ref(db, "PendingRecipes/" + id));
-
-          // Kirim notifikasi ke user
-          if (authorId) {
-            try {
-              const userData = await onValueOnce(ref(db, "Users/" + authorId));
-              const fcmToken = userData?.fcmToken;
-
-              if (fcmToken) {
-                // Ganti dengan URL Cloud Function yang benar
-                const response = await fetch(
-                  "https://your-region-your-project.cloudfunctions.net/sendApprovalNotification",
-                  {
-                    method: "POST",
-                    headers: {
-                      "Content-Type": "application/json",
-                    },
-                    body: JSON.stringify({
-                      token: fcmToken,
-                      title: "Resep Disetujui",
-                      body: `Resep "${name}" kamu telah disetujui oleh admin!`,
-                    }),
-                  }
-                );
-
-                if (!response.ok) {
-                  console.warn(
-                    "Failed to send notification:",
-                    response.statusText
-                  );
-                }
-              }
-            } catch (notifError) {
-              console.error("Error sending notification:", notifError);
-            }
-          }
-
+          console.log("=== APPROVAL COMPLETED ===");
           col.remove();
           alert("Resep berhasil di-approve!");
         } catch (error) {
-          console.error("Error approving recipe:", error);
-          alert("Terjadi kesalahan saat approve resep: " + error.message);
+          console.error("❌ Error in approval process:", error);
+          console.error("Error code:", error.code);
+          console.error("Error message:", error.message);
+
+          alert(`Error: ${error.message}\nCode: ${error.code || "unknown"}`);
+
+          // Reset button
           approveBtn.disabled = false;
           approveBtn.textContent = "Approve";
         }
