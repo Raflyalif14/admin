@@ -117,7 +117,7 @@ async function checkDuplicateRecipe(name, authorId) {
         resolve(isDuplicate);
       },
       { onlyOnce: true }
-    ); // Hanya baca sekali, tidak perlu listener terus-menerus
+    );
   });
 }
 
@@ -129,8 +129,6 @@ function renderCard(container, data, id, isPending = false) {
     category = "Tidak ada kategori",
     authorId = "",
     image = "https://via.placeholder.com/300x200?text=No+Image",
-    ingredients = [],
-    instructions = [],
   } = data;
 
   const authorName = usersMap[authorId] || "Pengguna tidak diketahui";
@@ -189,7 +187,7 @@ function renderCard(container, data, id, isPending = false) {
           return;
         }
 
-        // Buat objek resep yang bersih
+        // Buat objek resep yang bersih - tanpa approvedAt dan approvedBy
         const cleanRecipeData = {
           name: data.name,
           description: data.description,
