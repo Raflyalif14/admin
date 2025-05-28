@@ -15,6 +15,7 @@ import {
   onValue,
   set,
   remove,
+  push,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
 // Firebase config
@@ -56,6 +57,9 @@ document.querySelectorAll("#sidebar-menu .nav-link").forEach((link) => {
 // Map penyimpanan user
 const usersMap = {};
 
+// Set untuk melacak resep yang sudah disetujui (mencegah duplikasi)
+const approvedRecipes = new Set();
+
 // Load semua user dulu
 onValue(ref(db, "Users"), (snapshot) => {
   if (snapshot.exists()) {
@@ -70,6 +74,25 @@ onValue(ref(db, "Users"), (snapshot) => {
 });
 
 function loadRecipes() {
+  // Load Resep Approved terlebih dahulu untuk melacak duplikasi
+  onValue(ref(db, "Recipes"), (snapshot) => {
+    approvedList.innerHTML = "";
+    approvedRecipes.clear(); // Reset set
+
+    if (snapshot.exists()) {
+      snapshot.forEach((child) => {
+        const recipeData = child.val();
+        // Tambahkan ke set berdasarkan kombinasi nama dan authorId
+        const recipeKey = `${recipeData.name}_${recipeData.authorId}`;
+        approvedRecipes.add(recipeKey);
+
+        renderCard(approvedList, recipeData, child.key, false);
+      });
+    } else {
+      approvedList.innerHTML = `<p class="text-center">Belum ada resep yang disetujui.</p>`;
+    }
+  });
+
   // Load Resep Pending
   onValue(ref(db, "PendingRecipes"), (snapshot) => {
     pendingList.innerHTML = "";
@@ -78,23 +101,7 @@ function loadRecipes() {
         renderCard(pendingList, child.val(), child.key, true);
       });
     } else {
-      pendingList.innerHTML = (
-        <p class="text-center">Tidak ada resep menunggu persetujuan.</p>
-      );
-    }
-  });
-
-  // Load Resep Approved
-  onValue(ref(db, "Recipes"), (snapshot) => {
-    approvedList.innerHTML = "";
-    if (snapshot.exists()) {
-      snapshot.forEach((child) => {
-        renderCard(approvedList, child.val(), child.key, false);
-      });
-    } else {
-      approvedList.innerHTML = (
-        <p class="text-center">Belum ada resep yang disetujui.</p>
-      );
+      pendingList.innerHTML = `<p class="text-center">Tidak ada resep menunggu persetujuan.</p>`;
     }
   });
 }
@@ -107,6 +114,8 @@ function renderCard(container, data, id, isPending = false) {
     category = "Tidak ada kategori",
     authorId = "",
     image = "https://via.placeholder.com/300x200?text=No+Image",
+    ingredients = [],
+    instructions = [],
   } = data;
 
   const authorName = usersMap[authorId] || "Pengguna tidak diketahui";
@@ -116,7 +125,7 @@ function renderCard(container, data, id, isPending = false) {
 
   col.innerHTML = `
     <div class="card shadow-sm h-100">
-      <img src="${image}" class="card-img-top" alt="Gambar Resep">
+      <img src="${image}" class="card-img-top" alt="Gambar Resep" style="height: 200px; object-fit: cover;">
       <div class="card-body d-flex flex-column">
         <h5 class="card-title">${name}</h5>
         <h6 class="card-subtitle mb-2 text-muted">Kategori: ${category}</h6>
@@ -126,14 +135,14 @@ function renderCard(container, data, id, isPending = false) {
           isPending
             ? `
           <div class="mt-auto d-flex justify-content-between">
-            <button class="btn btn-success btn-sm approve">Approve</button>
-            <button class="btn btn-danger btn-sm reject">Reject</button>
+            <button class="btn btn-success btn-sm approve" data-id="${id}">Approve</button>
+            <button class="btn btn-danger btn-sm reject" data-id="${id}">Reject</button>
           </div>
         `
             : `
           <div class="mt-auto d-flex justify-content-between align-items-center">
             <span class="text-success fw-bold">✅ Disetujui</span>
-            <button class="btn btn-outline-danger btn-sm delete">Hapus</button>
+            <button class="btn btn-outline-danger btn-sm delete" data-id="${id}">Hapus</button>
           </div>
         `
         }
@@ -142,31 +151,82 @@ function renderCard(container, data, id, isPending = false) {
   `;
 
   if (isPending) {
-    col.querySelector(".approve").addEventListener("click", () => {
-      set(ref(db, "Recipes/" + id), {
-        ...data,
+    col.querySelector(".approve").addEventListener("click", (e) => {
+      const recipeId = e.target.getAttribute("data-id");
+      const recipeKey = `${data.name}_${data.authorId}`;
+
+      // Cek apakah resep sudah pernah disetujui
+      if (approvedRecipes.has(recipeKey)) {
+        alert("Resep ini sudah pernah disetujui sebelumnya!");
+        return;
+      }
+
+      // Buat objek resep yang bersih tanpa duplikasi data
+      const cleanRecipeData = {
+        name: data.name,
+        description: data.description,
+        category: data.category,
+        authorId: data.authorId,
+        image: data.image,
+        ingredients: data.ingredients || [],
+        instructions: data.instructions || [],
         status: "approved",
-      }).then(() => {
-        remove(ref(db, "PendingRecipes/" + id)).then(() => {
+        approvedAt: new Date().toISOString(),
+        approvedBy: "admin",
+      };
+
+      // Gunakan push untuk generate key baru otomatis
+      const newRecipeRef = push(ref(db, "Recipes"));
+
+      set(newRecipeRef, cleanRecipeData)
+        .then(() => {
+          // Hapus dari PendingRecipes setelah berhasil ditambahkan ke Recipes
+          return remove(ref(db, "PendingRecipes/" + recipeId));
+        })
+        .then(() => {
+          // Tambahkan ke set untuk mencegah duplikasi di masa depan
+          approvedRecipes.add(recipeKey);
           col.remove();
           alert("Resep berhasil di-approve!");
+        })
+        .catch((error) => {
+          console.error("Error approving recipe:", error);
+          alert("Terjadi kesalahan saat menyetujui resep.");
         });
-      });
     });
 
-    col.querySelector(".reject").addEventListener("click", () => {
-      remove(ref(db, "PendingRecipes/" + id)).then(() => {
-        col.remove();
-        alert("Resep ditolak dan dihapus.");
-      });
+    col.querySelector(".reject").addEventListener("click", (e) => {
+      const recipeId = e.target.getAttribute("data-id");
+
+      if (confirm("Yakin ingin menolak resep ini?")) {
+        remove(ref(db, "PendingRecipes/" + recipeId))
+          .then(() => {
+            col.remove();
+            alert("Resep ditolak dan dihapus.");
+          })
+          .catch((error) => {
+            console.error("Error rejecting recipe:", error);
+            alert("Terjadi kesalahan saat menolak resep.");
+          });
+      }
     });
   } else {
-    col.querySelector(".delete").addEventListener("click", () => {
+    col.querySelector(".delete").addEventListener("click", (e) => {
+      const recipeId = e.target.getAttribute("data-id");
+
       if (confirm("Yakin ingin menghapus resep ini?")) {
-        remove(ref(db, "Recipes/" + id)).then(() => {
-          col.remove();
-          alert("Resep berhasil dihapus.");
-        });
+        remove(ref(db, "Recipes/" + recipeId))
+          .then(() => {
+            // Hapus dari set tracking
+            const recipeKey = `${data.name}_${data.authorId}`;
+            approvedRecipes.delete(recipeKey);
+            col.remove();
+            alert("Resep berhasil dihapus.");
+          })
+          .catch((error) => {
+            console.error("Error deleting recipe:", error);
+            alert("Terjadi kesalahan saat menghapus resep.");
+          });
       }
     });
   }
