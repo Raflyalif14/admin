@@ -57,9 +57,6 @@ document.querySelectorAll("#sidebar-menu .nav-link").forEach((link) => {
 // Map penyimpanan user
 const usersMap = {};
 
-// Set untuk melacak resep yang sudah disetujui (mencegah duplikasi)
-const approvedRecipes = new Set();
-
 // Load semua user dulu
 onValue(ref(db, "Users"), (snapshot) => {
   if (snapshot.exists()) {
@@ -74,18 +71,13 @@ onValue(ref(db, "Users"), (snapshot) => {
 });
 
 function loadRecipes() {
-  // Load Resep Approved terlebih dahulu untuk melacak duplikasi
+  // Load Resep Approved
   onValue(ref(db, "Recipes"), (snapshot) => {
     approvedList.innerHTML = "";
-    approvedRecipes.clear(); // Reset set
 
     if (snapshot.exists()) {
       snapshot.forEach((child) => {
         const recipeData = child.val();
-        // Tambahkan ke set berdasarkan kombinasi nama dan authorId
-        const recipeKey = `${recipeData.name}_${recipeData.authorId}`;
-        approvedRecipes.add(recipeKey);
-
         renderCard(approvedList, recipeData, child.key, false);
       });
     } else {
@@ -103,6 +95,29 @@ function loadRecipes() {
     } else {
       pendingList.innerHTML = `<p class="text-center">Tidak ada resep menunggu persetujuan.</p>`;
     }
+  });
+}
+
+// Fungsi untuk mengecek apakah resep sudah ada di approved recipes
+async function checkDuplicateRecipe(name, authorId) {
+  return new Promise((resolve) => {
+    const recipesRef = ref(db, "Recipes");
+    onValue(
+      recipesRef,
+      (snapshot) => {
+        let isDuplicate = false;
+        if (snapshot.exists()) {
+          snapshot.forEach((child) => {
+            const recipe = child.val();
+            if (recipe.name === name && recipe.authorId === authorId) {
+              isDuplicate = true;
+            }
+          });
+        }
+        resolve(isDuplicate);
+      },
+      { onlyOnce: true }
+    ); // Hanya baca sekali, tidak perlu listener terus-menerus
   });
 }
 
@@ -151,82 +166,88 @@ function renderCard(container, data, id, isPending = false) {
   `;
 
   if (isPending) {
-    col.querySelector(".approve").addEventListener("click", (e) => {
+    col.querySelector(".approve").addEventListener("click", async (e) => {
       const recipeId = e.target.getAttribute("data-id");
-      const recipeKey = `${data.name}_${data.authorId}`;
 
-      // Cek apakah resep sudah pernah disetujui
-      if (approvedRecipes.has(recipeKey)) {
-        alert("Resep ini sudah pernah disetujui sebelumnya!");
-        return;
+      // Disable button untuk mencegah double click
+      const approveBtn = e.target;
+      approveBtn.disabled = true;
+      approveBtn.textContent = "Processing...";
+
+      try {
+        // Cek duplikasi sebelum approve
+        const isDuplicate = await checkDuplicateRecipe(
+          data.name,
+          data.authorId
+        );
+
+        if (isDuplicate) {
+          alert("Resep ini sudah pernah disetujui sebelumnya!");
+          // Re-enable button
+          approveBtn.disabled = false;
+          approveBtn.textContent = "Approve";
+          return;
+        }
+
+        // Buat objek resep yang bersih
+        const cleanRecipeData = {
+          name: data.name,
+          description: data.description,
+          category: data.category,
+          authorId: data.authorId,
+          image: data.image,
+          ingredients: data.ingredients || [],
+          instructions: data.instructions || [],
+          status: "approved",
+          approvedAt: new Date().toISOString(),
+          approvedBy: "admin",
+        };
+
+        // Gunakan push untuk generate key baru otomatis
+        const newRecipeRef = push(ref(db, "Recipes"));
+
+        // Tambahkan ke Recipes
+        await set(newRecipeRef, cleanRecipeData);
+
+        // Hapus dari PendingRecipes
+        await remove(ref(db, "PendingRecipes/" + recipeId));
+
+        alert("Resep berhasil di-approve!");
+      } catch (error) {
+        console.error("Error approving recipe:", error);
+        alert("Terjadi kesalahan saat menyetujui resep.");
+
+        // Re-enable button jika error
+        approveBtn.disabled = false;
+        approveBtn.textContent = "Approve";
       }
-
-      // Buat objek resep yang bersih tanpa duplikasi data
-      const cleanRecipeData = {
-        name: data.name,
-        description: data.description,
-        category: data.category,
-        authorId: data.authorId,
-        image: data.image,
-        ingredients: data.ingredients || [],
-        instructions: data.instructions || [],
-        status: "approved",
-        approvedAt: new Date().toISOString(),
-        approvedBy: "admin",
-      };
-
-      // Gunakan push untuk generate key baru otomatis
-      const newRecipeRef = push(ref(db, "Recipes"));
-
-      set(newRecipeRef, cleanRecipeData)
-        .then(() => {
-          // Hapus dari PendingRecipes setelah berhasil ditambahkan ke Recipes
-          return remove(ref(db, "PendingRecipes/" + recipeId));
-        })
-        .then(() => {
-          // Tambahkan ke set untuk mencegah duplikasi di masa depan
-          approvedRecipes.add(recipeKey);
-          col.remove();
-          alert("Resep berhasil di-approve!");
-        })
-        .catch((error) => {
-          console.error("Error approving recipe:", error);
-          alert("Terjadi kesalahan saat menyetujui resep.");
-        });
     });
 
-    col.querySelector(".reject").addEventListener("click", (e) => {
+    col.querySelector(".reject").addEventListener("click", async (e) => {
       const recipeId = e.target.getAttribute("data-id");
 
       if (confirm("Yakin ingin menolak resep ini?")) {
-        remove(ref(db, "PendingRecipes/" + recipeId))
-          .then(() => {
-            col.remove();
-            alert("Resep ditolak dan dihapus.");
-          })
-          .catch((error) => {
-            console.error("Error rejecting recipe:", error);
-            alert("Terjadi kesalahan saat menolak resep.");
-          });
+        try {
+          await remove(ref(db, "PendingRecipes/" + recipeId));
+          alert("Resep ditolak dan dihapus.");
+        } catch (error) {
+          console.error("Error rejecting recipe:", error);
+          alert("Terjadi kesalahan saat menolak resep.");
+        }
       }
     });
   } else {
-    col.querySelector(".delete").addEventListener("click", (e) => {
+    col.querySelector(".delete").addEventListener("click", async (e) => {
       const recipeId = e.target.getAttribute("data-id");
 
       if (confirm("Yakin ingin menghapus resep ini?")) {
-        remove(ref(db, "Recipes/" + recipeId))
-          .then(() => {
-            // Hapus dari set tracking
-            const recipeKey = `${data.name}_${data.authorId}`;
-            approvedRecipes.delete(recipeKey);
-            col.remove();
-            alert("Resep berhasil dihapus.");
-          })
-          .catch((error) => {
-            console.error("Error deleting recipe:", error);
-            alert("Terjadi kesalahan saat menghapus resep.");
-          });
+        try {
+          await remove(ref(db, "Recipes/" + recipeId));
+          alert("Resep berhasil dihapus.");
+        } catch (error) {
+          console.error("Error deleting recipe:", error);
+          alert("Terjadi kesalahan saat menghapus resep.");
+        }
       }
     });
   }
