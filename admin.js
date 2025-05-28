@@ -53,6 +53,7 @@ document.querySelectorAll("#sidebar-menu .nav-link").forEach((link) => {
 const pendingList = document.getElementById("pending-list");
 const approvedList = document.getElementById("approved-list");
 const usersMap = {};
+const DEFAULT_IMAGE = "https://via.placeholder.com/300x200?text=No+Image";
 
 // Load users and then recipes
 onValue(ref(db, "Users"), (snapshot) => {
@@ -63,8 +64,17 @@ onValue(ref(db, "Users"), (snapshot) => {
   loadRecipes();
 });
 
+let recipesListenerAttached = false;
+
 // Load recipes
 function loadRecipes() {
+  if (recipesListenerAttached) return;
+  recipesListenerAttached = true;
+
+  // Tampilkan loading
+  pendingList.innerHTML = `<p class="text-center">Memuat resep menunggu...</p>`;
+  approvedList.innerHTML = `<p class="text-center">Memuat resep disetujui...</p>`;
+
   // Approved
   onValue(ref(db, "Recipes"), (snapshot) => {
     renderList(approvedList, snapshot, false);
@@ -120,7 +130,7 @@ function renderCard(container, data, id, isPending = false) {
     description = "-",
     category = "Tidak ada kategori",
     authorId = "",
-    image = "https://via.placeholder.com/300x200?text=No+Image",
+    image = DEFAULT_IMAGE,
   } = data;
 
   const col = document.createElement("div");
@@ -151,11 +161,21 @@ function renderCard(container, data, id, isPending = false) {
     </div>
   `;
 
-  // Approve
   if (isPending) {
-    col.querySelector(".approve").onclick = async () => {
+    const approveBtn = col.querySelector(".approve");
+    const rejectBtn = col.querySelector(".reject");
+
+    approveBtn.onclick = async () => {
+      approveBtn.disabled = true;
+      approveBtn.textContent = "Menyetujui...";
+
       const isDupe = await checkDuplicateRecipe(name, authorId);
-      if (isDupe) return alert("Resep sudah disetujui sebelumnya!");
+      if (isDupe) {
+        alert("Resep sudah disetujui sebelumnya!");
+        approveBtn.disabled = false;
+        approveBtn.textContent = "Approve";
+        return;
+      }
 
       const newData = {
         name,
@@ -165,6 +185,7 @@ function renderCard(container, data, id, isPending = false) {
         image,
         status: "approved",
         id: data.originalId || id,
+        approvedAt: Date.now(),
       };
 
       try {
@@ -176,13 +197,15 @@ function renderCard(container, data, id, isPending = false) {
       }
     };
 
-    col.querySelector(".reject").onclick = async () => {
+    rejectBtn.onclick = async () => {
       if (!confirm("Yakin tolak resep ini?")) return;
+      rejectBtn.disabled = true;
       try {
         await remove(ref(db, "PendingRecipes/" + id));
         alert("Resep ditolak.");
       } catch {
         alert("Gagal menolak resep.");
+        rejectBtn.disabled = false;
       }
     };
   } else {
